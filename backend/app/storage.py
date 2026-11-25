@@ -1,8 +1,10 @@
-"""Almacenamiento local en disco: data/videos/<id>.mp4 y data/frames/<id>/frame_XX.jpg."""
+"""Almacenamiento local en disco: data/videos/<id>.mp4, data/frames/<id>/frame_XX.jpg
+y data/renders/<id>_<formato>_<encaje>_<sufijo>.mp4."""
 from __future__ import annotations
 
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -21,6 +23,26 @@ class UploadTooLarge(Exception):
 def ensure_dirs() -> None:
     settings.videos_dir.mkdir(parents=True, exist_ok=True)
     settings.frames_dir.mkdir(parents=True, exist_ok=True)
+    settings.renders_dir.mkdir(parents=True, exist_ok=True)
+
+
+RENDER_TTL_S = 60 * 60  # los renders se borran tras 1 hora (ya se descargaron)
+
+
+def render_path(video_id: str, fmt: str, fit: str) -> Path:
+    return settings.renders_dir / f"{video_id}_{fmt}_{fit}_{uuid.uuid4().hex[:8]}.mp4"
+
+
+def temp_overlay_path() -> Path:
+    return settings.renders_dir / f"overlay_{uuid.uuid4().hex}.png"
+
+
+def cleanup_renders(max_age_s: int = RENDER_TTL_S) -> None:
+    """Borra renders y overlays temporales antiguos (no se borra el .gitkeep)."""
+    limit = time.time() - max_age_s
+    for p in settings.renders_dir.glob("*"):
+        if p.suffix in (".mp4", ".png") and p.stat().st_mtime < limit:
+            p.unlink(missing_ok=True)
 
 
 def new_id() -> str:
@@ -61,3 +83,5 @@ async def save_upload(file: UploadFile, dest: Path) -> int:
 def delete_video(video_id: str) -> None:
     video_path(video_id).unlink(missing_ok=True)
     shutil.rmtree(frames_path(video_id), ignore_errors=True)
+    for p in settings.renders_dir.glob(f"{video_id}_*.mp4"):
+        p.unlink(missing_ok=True)

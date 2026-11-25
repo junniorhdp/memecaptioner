@@ -53,5 +53,9 @@ class Settings:
     def frames_dir(self) -> Path:
         return self.data_dir / "frames"
 
+    @property
+    def renders_dir(self) -> Path:
+        return self.data_dir / "renders"
+
 
 settings = Settings()

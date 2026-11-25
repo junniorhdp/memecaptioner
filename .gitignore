@@ -11,3 +11,7 @@ test.mp4
 
 # Instrucciones originales de la tarea (no se suben)
 PROMPT_CLAUDE_CODE.md
+
+# Videos renderizados para TikTok/IG
+data/renders/*
+!data/renders/.gitkeep
