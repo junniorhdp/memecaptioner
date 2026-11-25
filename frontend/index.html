@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0c0a14" />
+  <title>MemeCaptioner</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Inter:wght@400..700&display=swap" />
+
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Fondo aurora (decorativo) -->
+  <div class="aurora" aria-hidden="true">
+    <span class="aurora__blob aurora__blob--1"></span>
+    <span class="aurora__blob aurora__blob--2"></span>
+    <span class="aurora__blob aurora__blob--3"></span>
+  </div>
+
+  <div class="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-5 sm:px-6 sm:pt-7">
+
+    <!-- ===== Header ===== -->
+    <header class="mb-6 flex items-center justify-between gap-4 sm:mb-8">
+      <h1 class="logo text-xl sm:text-2xl"><span class="logo__grad">Meme</span>Captioner</h1>
+      <span id="model-badge" class="model-badge" data-status="loading" title="Modelo activo">
+        <span class="model-badge__dot" aria-hidden="true"></span>
+        <span id="model-badge-text">Conectando…</span>
+      </span>
+    </header>
+
+    <!-- ===== Avisos (errores de la API) ===== -->
+    <div id="notice" class="notice" role="alert" aria-live="assertive" hidden>
+      <span id="notice-icon" class="notice__icon" aria-hidden="true"></span>
+      <div class="min-w-0 flex-1">
+        <p id="notice-title" class="notice__title"></p>
+        <p id="notice-text" class="notice__text"></p>
+      </div>
+      <button id="notice-close" class="notice__close" type="button" aria-label="Cerrar aviso">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+    </div>
+
+    <input id="file-input" type="file" accept=".mp4,video/mp4" class="sr-only" tabindex="-1" aria-hidden="true" />
+
+    <main>
+      <!-- ===== Vista 1: sin video ===== -->
+      <section id="upload-view" class="mx-auto max-w-2xl pt-4 sm:pt-12" aria-labelledby="upload-title">
+        <div class="mb-6 text-center sm:mb-8">
+          <h2 id="upload-title" class="font-display text-3xl font-bold tracking-tight sm:text-4xl">Convierte tu video en memes</h2>
+          <p class="text-muted mt-2 text-sm sm:text-base">Sube un clip corto y elige el tono. Generamos 6 captions listas para copiar.</p>
+        </div>
+
+        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Subir video .mp4: arrastra un archivo o haz clic para elegir">
+          <div id="dropzone-idle" class="flex flex-col items-center gap-3">
+            <span class="dropzone__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 4v12M7 9l5-5 5 5" />
+              </svg>
+            </span>
+            <p class="dropzone__title">Arrastra tu video aquí</p>
+            <p id="dropzone-sub" class="dropzone__sub">o <strong>haz clic para elegir</strong> · .mp4</p>
+          </div>
+          <div id="dropzone-loading" class="flex flex-col items-center gap-3" hidden>
+            <span class="spinner spinner--lg" aria-hidden="true"></span>
+            <p class="dropzone__title">Subiendo y extrayendo frames…</p>
+            <p id="upload-filename" class="dropzone__sub max-w-full truncate"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Vista 2: con video ===== -->
+      <section id="workspace-view" class="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8" hidden aria-label="Video y captions">
+
+        <!-- Izquierda: reproductor -->
+        <div class="lg:col-span-2">
+          <div class="lg:sticky lg:top-6">
+            <div class="player">
+              <video id="player" controls preload="metadata" playsinline></video>
+            </div>
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p id="file-name" class="truncate text-sm font-medium"></p>
+                <p id="file-duration" class="text-muted text-xs"></p>
+              </div>
+              <button id="change-video" class="btn-ghost" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 4v12M7 9l5-5 5 5" />
+                </svg>
+                Subir otro
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Derecha: controles + tarjetas -->
+        <div class="min-w-0 lg:col-span-3">
+          <form id="controls" class="panel mb-5" novalidate>
+            <div class="flex items-baseline justify-between gap-3">
+              <span id="tone-label" class="label">Tono</span>
+              <span id="tone-desc" class="text-muted truncate text-xs"></span>
+            </div>
+            <div id="tone-chips" class="chips mt-2.5" role="radiogroup" aria-labelledby="tone-label">
+              <span class="chip chip--skeleton skeleton" aria-hidden="true"></span>
+              <span class="chip chip--skeleton skeleton" aria-hidden="true"></span>
+              <span class="chip chip--skeleton skeleton" aria-hidden="true"></span>
+              <span class="chip chip--skeleton skeleton" aria-hidden="true"></span>
+            </div>
+
+            <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label class="min-w-0 flex-1" for="extra-context">
+                <span class="label">Contexto extra <span class="label__opt">(opcional)</span></span>
+                <input id="extra-context" class="input mt-1.5" type="text" maxlength="300" autocomplete="off"
+                  placeholder="Ej.: es mi perro, es en la oficina…" />
+              </label>
+              <button id="generate-btn" class="btn-primary" type="submit" aria-describedby="shortcut-hint">
+                <svg id="generate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9.8 15.9 9 18.75l-.8-2.85a4.5 4.5 0 0 0-3.1-3.09L2.25 12l2.85-.81a4.5 4.5 0 0 0 3.1-3.1L9 5.25l.8 2.84a4.5 4.5 0 0 0 3.1 3.1l2.85.81-2.85.81a4.5 4.5 0 0 0-3.1 3.09ZM18.26 8.72 18 9.75l-.26-1.03a3.38 3.38 0 0 0-2.45-2.46L14.25 6l1.04-.26a3.38 3.38 0 0 0 2.45-2.45L18 2.25l.26 1.04a3.38 3.38 0 0 0 2.46 2.45L21.75 6l-1.03.26a3.38 3.38 0 0 0-2.46 2.46Z" />
+                </svg>
+                <span id="generate-spinner" class="spinner" aria-hidden="true" hidden></span>
+                <span id="generate-label">Generar</span>
+              </button>
+            </div>
+
+            <p id="shortcut-hint" class="hint mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <kbd id="mod-key">Ctrl</kbd>+<kbd>Enter</kbd> genera
+              <span aria-hidden="true" class="mx-1">·</span>
+              <kbd>1</kbd>–<kbd>6</kbd> copia una caption
+            </p>
+          </form>
+
+          <div id="cards" class="cards-grid" aria-live="polite" aria-busy="false"></div>
+
+          <div id="result-meta" class="result-meta mt-4 space-y-0.5" hidden>
+            <p><strong>Escena:</strong> <span id="scene-summary"></span></p>
+            <p><strong>Modelo:</strong> <span id="model-name" class="mono"></span></p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast (siempre en el DOM para que aria-live funcione) -->
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true">
+    <svg id="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+    <span id="toast-text"></span>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

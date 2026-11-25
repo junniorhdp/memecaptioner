@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+data/videos/*
+data/frames/*
+!data/videos/.gitkeep
+!data/frames/.gitkeep
+
+# Video de prueba local
+test.mp4
+
+# Instrucciones originales de la tarea (no se suben)
+PROMPT_CLAUDE_CODE.md
