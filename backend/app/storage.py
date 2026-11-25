@@ -29,8 +29,8 @@ def ensure_dirs() -> None:
 RENDER_TTL_S = 60 * 60  # los renders se borran tras 1 hora (ya se descargaron)
 
 
-def render_path(video_id: str, fmt: str, fit: str) -> Path:
-    return settings.renders_dir / f"{video_id}_{fmt}_{fit}_{uuid.uuid4().hex[:8]}.mp4"
+def render_path(video_id: str, fmt: str, variant: str) -> Path:
+    return settings.renders_dir / f"{video_id}_{fmt}_{variant}_{uuid.uuid4().hex[:8]}.mp4"
 
 
 def temp_overlay_path() -> Path:

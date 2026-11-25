@@ -6,16 +6,23 @@ Herramienta web local: subes un .mp4 → FFmpeg extrae 5 frames equidistantes �
 
 Más capturas en [`screenshots/`](screenshots/) (estado vacío, vista móvil y editor de video).
 
-### Exportar para TikTok / Instagram
+### Editor de video (exportar para TikTok / Instagram)
 
-Cada caption tiene un botón **«Usar en video»** que abre un editor:
+Cada caption tiene un botón **«Usar en video»** que abre un editor estilo CapCut hecho con [Konva.js](https://konvajs.org/) (por CDN, sin build):
 
-- Texto editable (respeta los saltos de línea) y 3 estilos: **Clásico meme** (blanco con borde negro, fuente Anton), **Banda TikTok** (franja blanca arriba con texto negro; el video va debajo) y **Subtítulo** (caja negra semitransparente).
-- Posición arriba / centro / abajo, tamaño de letra, formato **9:16** (1080×1920), **4:5** (1080×1350) o **1:1** (1080×1080) y encaje **fondo difuminado** o **recortar**.
-- Vista previa en vivo con el video reproduciéndose. El texto se dibuja en un `<canvas>` del tamaño final, con márgenes seguros en 9:16 (no tapa los botones de TikTok de la derecha ni la descripción de abajo): ese mismo canvas se envía como PNG al backend, así que lo que ves es lo que se exporta.
-- «Descargar video» renderiza con FFmpeg (H.264, yuv420p, 30 fps, AAC, `+faststart`) y descarga `memecaptioner_<formato>_<fecha>.mp4`. No gasta peticiones de Gemini.
+- **Lienzo** 9:16 (1080×1920), 4:5 (1080×1350) o 1:1 (1080×1080) con el video de fondo: se mueve arrastrando y se hace zoom con la rueda, pellizcando o con el slider. Las zonas vacías se rellenan con el video difuminado (o en negro).
+- **Capas de texto** («+ Texto»): seleccionar, arrastrar, redimensionar desde las esquinas, rotar con el asa y doble clic para editar el texto in situ (respeta los saltos de línea). Guías magnéticas moradas al centro y a los márgenes.
+- **Estilo** de la capa seleccionada: fuente (Anton, Inter, Bricolage Grotesque, Caveat manuscrita, Pixelify Sans pixel), tamaño, color, borde, caja de fondo (color, opacidad, radio, relleno), sombra, opacidad y alineación.
+- **Presets**: Clásico meme, Banda TikTok (crea la franja blanca como capa de fondo y mueve el video debajo) y Subtítulo.
+- **Capas**: seleccionar, subir/bajar, duplicar, ocultar y borrar.
+- **Teclado**: Ctrl+Z / Ctrl+Shift+Z (deshacer/rehacer), Supr (borrar capa), flechas (mover 1 px; Shift = 10 px), Ctrl+D (duplicar), Esc.
+- **Zona segura TikTok**: sombrea lo que tapa la app en 9:16. Los valores están en un solo lugar: `TIKTOK_SAFE` en `frontend/editor.js`.
+- **Móvil**: el lienzo ocupa el ancho y el panel es una hoja inferior deslizable; gestos con dos dedos para escalar/rotar.
+- **Exportar**: cada capa visible se rasteriza como PNG transparente del tamaño final con el mismo Konva de la vista previa (lo que ves = lo que se exporta) y se envía con el estado del editor a `/render`. Cancelar mata el proceso de FFmpeg en el servidor. No gasta peticiones de Gemini.
 
-![Editor de video con el estilo Clásico meme en 9:16](screenshots/05-editor-clasico.png)
+El estado del editor es un JSON: `{format, background, video: {x, y, scale}, layers: [{id, type, text, x, y, rotation, width, fontFamily, fontSize, fill, stroke, strokeWidth, bg, bgRadius, bgPadding, shadow, opacity, align, start, end, …}]}`. `start`/`end` (segundos) quedan en `null` = todo el video; el backend ya los aplica (Fase 2).
+
+![Editor de video: dos capas de texto, zona segura de TikTok y panel de estilo](screenshots/05-editor-capas-zona-segura.png)
 
 Proveedores de visión (variable `PROVIDER` en `.env`):
 
@@ -45,7 +52,7 @@ memecaptioner/
 │       │   └── routes.py      # endpoints (solo orquestan)
 │       └── services/
 │           ├── video.py       # ffprobe + ffmpeg (frames)
-│           ├── render.py      # ffmpeg: video encajado en 9:16 / 4:5 / 1:1 + PNG del texto
+│           ├── render.py      # ffmpeg: fondo, video con posición/zoom y N capas PNG (con tiempos)
 │           ├── captioner.py   # prompt, plan de ángulos y validación
 │           ├── tones.py       # tonos, ángulos y reparto de captions
 │           └── providers/     # un archivo por proveedor de visión
@@ -57,7 +64,8 @@ memecaptioner/
 ├── frontend/                  # sin build: Tailwind por CDN + JS vanilla
 │   ├── index.html
 │   ├── styles.css             # tema oscuro, animaciones, componentes
-│   └── app.js                 # interfaz: subida, tonos, captions, atajos y editor de video
+│   ├── app.js                 # interfaz: subida, tonos, captions y atajos
+│   └── editor.js              # editor de video (Konva): capas, estilos, historial, exportación
 ├── screenshots/               # capturas para el README
 └── data/
     ├── videos/                # <id>.mp4
@@ -89,7 +97,7 @@ Abre http://127.0.0.1:8000/docs para probar la API.
 | GET | `/api/tones` | Lista de tonos para el selector |
 | POST | `/api/videos` | `multipart` con `file` (.mp4). Guarda, extrae frames. Devuelve `video_id`, `video_url`, `duration_s`, `frame_urls` |
 | POST | `/api/videos/{id}/captions` | Body `{"tone": "mixto\|panas\|cotidiano\|absurdo\|negro\|shitpost\|caotico", "extra_context": "opcional"}`. Devuelve `model` (el que respondió), `scene_summary` + 6 `captions` `{id, angle, text}`. Llamarlo otra vez = regenerar (reutiliza los frames) |
-| POST | `/api/videos/{id}/render` | `multipart`: `overlay` (PNG transparente del tamaño exacto del formato, máx. 8 MB), `format` (`9x16\|4x5\|1x1`), `fit` (`blur\|crop`), `band_height` (px de la franja de «Banda TikTok», 0 si no hay). Devuelve el `.mp4` como descarga |
+| POST | `/api/videos/{id}/render` | `multipart`: `spec` (JSON `{format: "9x16\|4x5\|1x1", background: "blur\|black", video: {x, y, scale}, layers: [{id, start, end}]}`) y `layers` (un PNG transparente de W×H por capa, en el mismo orden; 0 a 20, máx. 8 MB cada uno). `video.x/y` = centro del video en px del lienzo; `scale` = relativa al encaje completo (0.1–5). Devuelve el `.mp4` como descarga. Si el cliente cancela, FFmpeg se mata |
 | DELETE | `/api/videos/{id}` | Borra video, frames y sus renders |
 
 Ángulos (`angle` de cada caption): `panas` (se muestra como «Amigos»), `cotidiano`, `absurdo`, `negro` y `shitpost`.
@@ -102,4 +110,4 @@ Abre http://127.0.0.1:8000/docs para probar la API.
 
 En todos los tonos salvo `negro` y `shitpost` se pide al menos 1 POV y 1 diálogo.
 
-Errores: 415 (no es .mp4; en render, el texto no es PNG), 413 (muy pesado), 422 (FFmpeg / duración en la subida; en captions, Gemini bloqueó la respuesta por sus filtros; en render, formato, encaje, franja o tamaño del PNG no válidos), 404, 429 (límite gratuito de Gemini agotado), 500 (FFmpeg no pudo renderizar), 502 (falló el proveedor de visión), 503 (Gemini saturado: el principal y el de respaldo). Todos con `{"detail": "mensaje en español"}`.
+Errores: 415 (no es .mp4; en render, una capa no es PNG), 413 (muy pesado), 422 (FFmpeg / duración en la subida; en captions, Gemini bloqueó la respuesta por sus filtros; en render, `spec` no válido, nº de capas distinto del de `spec` o PNG de otro tamaño), 404, 429 (límite gratuito de Gemini agotado), 500 (FFmpeg no pudo renderizar), 502 (falló el proveedor de visión), 503 (Gemini saturado: el principal y el de respaldo). Todos con `{"detail": "mensaje en español"}`.

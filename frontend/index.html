@@ -9,9 +9,10 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Inter:wght@400..800&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Caveat:wght@400..700&family=Inter:wght@400..800&family=Pixelify+Sans:wght@400..700&display=swap" />
 
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/konva@10.11.0/konva.min.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -144,88 +145,141 @@
     </main>
   </div>
 
-  <!-- ===== Editor "Usar en video" (modal) ===== -->
+  <!-- ===== Editor de video (Konva) — la lógica está en editor.js ===== -->
   <div id="editor" class="editor" role="dialog" aria-modal="true" aria-labelledby="editor-title" hidden>
     <div id="editor-backdrop" class="editor__backdrop"></div>
-    <div id="editor-panel" class="editor__panel">
-      <header class="editor__head">
-        <div>
-          <h2 id="editor-title" class="font-display text-xl font-bold tracking-tight">Usar en video</h2>
-          <p class="text-muted text-xs">Edita el texto, elige estilo y formato, y descarga el MP4 listo para TikTok o Instagram.</p>
+    <div id="editor-panel" class="editor__panel ed">
+      <header class="ed-head">
+        <h2 id="editor-title" class="font-display ed-title">Editor de video</h2>
+        <div class="ed-toolbar" role="toolbar" aria-label="Herramientas del editor">
+          <button id="ed-undo" class="ed-icon-btn" type="button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+          <button id="ed-redo" class="ed-icon-btn" type="button" title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+          <span class="ed-sep" aria-hidden="true"></span>
+          <button id="ed-add-text" class="btn-ghost" type="button" title="Añadir una capa de texto" aria-label="Añadir texto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="ed-btn-label">Texto</span></button>
+          <button id="ed-safe" class="btn-ghost" type="button" aria-pressed="false" aria-label="Zona segura TikTok" title="Sombrea las zonas que tapa la interfaz de TikTok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M6 6.5h12M6 16h12M15 9v4"/></svg><span class="ed-btn-label">Zona segura TikTok</span></button>
+          <div id="ed-format" class="chips chips--wrap ed-seg" role="radiogroup" aria-label="Formato"></div>
         </div>
-        <button id="editor-close" class="notice__close" type="button" aria-label="Cerrar editor">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-        </button>
+        <button id="editor-close" class="notice__close ed-close" type="button" aria-label="Cerrar editor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </header>
 
-      <div class="editor__body">
-        <!-- Vista previa: el mismo <canvas> que se exporta, encima del video -->
-        <div class="preview-stage">
-          <div id="preview-frame" class="preview-frame" data-fit="blur">
-            <div id="preview-area" class="preview-area">
-              <video id="preview-bg" class="preview-bg" muted playsinline loop preload="auto" aria-hidden="true"></video>
-              <video id="preview-fg" class="preview-fg" muted playsinline loop preload="auto"></video>
+      <div class="ed-body">
+        <!-- Lienzo -->
+        <section class="ed-canvas-col" aria-label="Lienzo">
+          <div id="ed-canvas-area" class="ed-canvas-area">
+            <div id="ed-frame" class="ed-frame">
+              <video id="ed-bgvideo" class="ed-bgvideo" muted playsinline loop preload="auto" aria-hidden="true"></video>
+              <div id="ed-stage" class="ed-stage"></div>
+              <textarea id="ed-inline" class="ed-inline" spellcheck="false" aria-label="Editar el texto de la capa" hidden></textarea>
             </div>
-            <canvas id="overlay-canvas" class="preview-canvas" width="1080" height="1920" aria-hidden="true"></canvas>
           </div>
-          <p id="ed-meta" class="hint text-center"></p>
-        </div>
-
-        <!-- Controles -->
-        <form id="editor-form" class="editor__controls" novalidate>
-          <div class="field">
-            <label class="field__label" for="ed-text">Texto</label>
-            <textarea id="ed-text" class="input textarea" rows="4" maxlength="400" spellcheck="true"></textarea>
+          <div class="ed-videobar">
+            <button id="ed-play" class="ed-icon-btn" type="button" aria-label="Pausar video" title="Pausar / reproducir">
+              <svg id="ed-play-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+              <svg id="ed-play-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"/></svg>
+            </button>
+            <label class="ed-zoom" for="ed-zoom">
+              <span class="ed-zoom__label">Zoom del video</span>
+              <input id="ed-zoom" class="range" type="range" min="10" max="500" step="1" />
+              <output id="ed-zoom-value" for="ed-zoom">100%</output>
+            </label>
+            <button id="ed-center-video" class="btn-ghost" type="button" title="Volver a centrar el video y quitar el zoom">Centrar</button>
+            <div id="ed-bgmode" class="chips chips--wrap ed-seg" role="radiogroup" aria-label="Relleno de las zonas vacías"></div>
           </div>
+          <p class="hint ed-hint">Arrastra el video para moverlo · rueda o pellizco para zoom · doble clic en un texto para editarlo</p>
+        </section>
 
-          <div class="field">
-            <span id="ed-style-label" class="field__label">Estilo</span>
-            <div id="ed-style" class="chips chips--wrap" role="radiogroup" aria-labelledby="ed-style-label"></div>
-          </div>
-
-          <div class="field">
-            <span id="ed-position-label" class="field__label">Posición</span>
-            <div id="ed-position" class="chips chips--wrap" role="radiogroup" aria-labelledby="ed-position-label"></div>
-          </div>
-
-          <div class="field">
-            <div class="flex items-baseline justify-between">
-              <label class="field__label" for="ed-size">Tamaño de letra</label>
-              <output id="ed-size-value" class="text-muted text-xs" for="ed-size"></output>
-            </div>
-            <input id="ed-size" class="range" type="range" min="32" max="160" step="2" />
-          </div>
-
-          <div class="field">
-            <span id="ed-format-label" class="field__label">Formato</span>
-            <div id="ed-format" class="chips chips--wrap" role="radiogroup" aria-labelledby="ed-format-label"></div>
-          </div>
-
-          <div class="field">
-            <span id="ed-fit-label" class="field__label">Encaje</span>
-            <div id="ed-fit" class="chips chips--wrap" role="radiogroup" aria-labelledby="ed-fit-label"></div>
-          </div>
-
-          <div id="ed-error" class="notice notice--error editor__error" role="alert" hidden>
-            <span class="notice__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
-            </span>
-            <p id="ed-error-text" class="min-w-0 flex-1"></p>
-          </div>
-
-          <div id="ed-progress" class="render-progress" hidden aria-live="polite">
-            <div class="progress" aria-hidden="true"><div class="progress__bar"></div></div>
-            <p id="ed-progress-text" class="hint">Renderizando…</p>
-          </div>
-
-          <button id="ed-download" class="btn-primary w-full" type="submit">
-            <svg id="ed-download-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 4v12M7 11l5 5 5-5" />
-            </svg>
-            <span id="ed-download-spinner" class="spinner" aria-hidden="true" hidden></span>
-            <span id="ed-download-label">Descargar video</span>
+        <!-- Panel lateral (hoja inferior en móvil) -->
+        <aside id="ed-sheet" class="ed-sheet" aria-label="Capas y estilo">
+          <button id="ed-sheet-handle" class="ed-sheet__handle" type="button" aria-expanded="false" aria-controls="ed-sheet-content">
+            <span class="ed-sheet__grip" aria-hidden="true"></span>
+            <span class="ed-sheet__handle-label">Capas y estilo</span>
           </button>
-        </form>
+          <div id="ed-sheet-content" class="ed-sheet__content">
+            <section class="ed-section">
+              <h3 class="ed-section__title">Presets</h3>
+              <div id="ed-presets" class="ed-presets"></div>
+            </section>
+
+            <section class="ed-section">
+              <h3 class="ed-section__title">Capas</h3>
+              <ul id="ed-layers" class="ed-layers" aria-label="Capas (la de arriba se dibuja encima)"></ul>
+            </section>
+
+            <section class="ed-section">
+              <h3 class="ed-section__title">Estilo</h3>
+              <p id="ed-style-empty" class="hint">Selecciona una capa para editar su estilo.</p>
+              <div id="ed-style-fields" class="ed-fields">
+                <div class="ed-field" data-for="text">
+                  <label class="ed-label" for="ed-font">Fuente</label>
+                  <div class="ed-row">
+                    <select id="ed-font" class="input ed-select"></select>
+                    <select id="ed-weight" class="input ed-select ed-select--sm" aria-label="Grosor de la fuente"></select>
+                  </div>
+                </div>
+                <div class="ed-field" data-for="text">
+                  <div class="ed-field__head"><label class="ed-label" for="ed-size">Tamaño</label><output id="ed-size-value" for="ed-size"></output></div>
+                  <input id="ed-size" class="range" type="range" min="16" max="240" step="1" />
+                </div>
+                <div class="ed-field" data-for="text">
+                  <span class="ed-label">Color del texto</span>
+                  <div id="ed-fill" class="ed-color" role="group" aria-label="Color del texto"></div>
+                </div>
+                <div class="ed-field" data-for="text">
+                  <span class="ed-label">Borde</span>
+                  <div id="ed-stroke" class="ed-color" role="group" aria-label="Color del borde"></div>
+                  <div class="ed-field__head"><label class="ed-sublabel" for="ed-stroke-width">Grosor</label><output id="ed-stroke-width-value" for="ed-stroke-width"></output></div>
+                  <input id="ed-stroke-width" class="range" type="range" min="0" max="40" step="1" />
+                </div>
+                <div class="ed-field" data-for="text">
+                  <label class="ed-check"><input id="ed-bg-on" type="checkbox" /> Fondo de caja</label>
+                  <div id="ed-bg-fields" class="ed-subfields">
+                    <div id="ed-bg" class="ed-color" role="group" aria-label="Color del fondo"></div>
+                    <div class="ed-field__head"><label class="ed-sublabel" for="ed-bg-opacity">Opacidad del fondo</label><output id="ed-bg-opacity-value" for="ed-bg-opacity"></output></div>
+                  <input id="ed-bg-opacity" class="range" type="range" min="0" max="100" step="1" />
+                    <div class="ed-field__head"><label class="ed-sublabel" for="ed-bg-radius">Radio</label><output id="ed-bg-radius-value" for="ed-bg-radius"></output></div>
+                  <input id="ed-bg-radius" class="range" type="range" min="0" max="60" step="1" />
+                    <div class="ed-field__head"><label class="ed-sublabel" for="ed-bg-padding">Relleno</label><output id="ed-bg-padding-value" for="ed-bg-padding"></output></div>
+                  <input id="ed-bg-padding" class="range" type="range" min="0" max="80" step="1" />
+                  </div>
+                </div>
+                <div class="ed-field" data-for="text">
+                  <label class="ed-check"><input id="ed-shadow" type="checkbox" /> Sombra</label>
+                </div>
+                <div class="ed-field" data-for="text">
+                  <span class="ed-label">Alineación</span>
+                  <div id="ed-align" class="chips chips--wrap ed-seg" role="radiogroup" aria-label="Alineación"></div>
+                </div>
+                <div class="ed-field" data-for="rect">
+                  <span class="ed-label">Color de la franja</span>
+                  <div id="ed-rect-fill" class="ed-color" role="group" aria-label="Color de la franja"></div>
+                </div>
+                <div class="ed-field">
+                  <div class="ed-field__head"><label class="ed-label" for="ed-opacity">Opacidad</label><output id="ed-opacity-value" for="ed-opacity"></output></div>
+                  <input id="ed-opacity" class="range" type="range" min="0" max="100" step="1" />
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="ed-sheet__footer">
+            <div id="ed-error" class="notice notice--error ed-error" role="alert" hidden>
+              <span class="notice__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg></span>
+              <p id="ed-error-text" class="min-w-0 flex-1"></p>
+            </div>
+            <div id="ed-progress" class="render-progress" aria-live="polite" hidden>
+              <div class="progress" aria-hidden="true"><div class="progress__bar"></div></div>
+              <div class="flex items-center justify-between gap-2">
+                <p id="ed-progress-text" class="hint">Renderizando…</p>
+                <button id="ed-cancel" class="btn-ghost" type="button">Cancelar</button>
+              </div>
+            </div>
+            <button id="ed-download" class="btn-primary w-full" type="button">
+              <span id="ed-download-icon" class="ed-btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 4v12M7 11l5 5 5-5" /></svg></span>
+              <span id="ed-download-spinner" class="spinner" aria-hidden="true" hidden></span>
+              <span id="ed-download-label">Descargar video</span>
+            </button>
+          </div>
+        </aside>
       </div>
     </div>
   </div>
@@ -237,5 +291,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="editor.js"></script>
 </body>
 </html>

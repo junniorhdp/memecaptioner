@@ -1,15 +1,15 @@
 """Endpoints HTTP. Solo orquestan: la lógica vive en services/ y storage."""
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, Response
+from pydantic import ValidationError
 
 from app import storage
 from app.config import settings
-from app.schemas import CaptionRequest, CaptionResponse, ToneInfo, VideoUploaded
+from app.schemas import CaptionRequest, CaptionResponse, RenderSpec, ToneInfo, VideoUploaded
 from app.services.captioner import (
     CaptionBlocked,
     CaptionError,
@@ -19,10 +19,10 @@ from app.services.captioner import (
 )
 from app.services.providers import ProviderError, get_provider
 from app.services.tones import TONES
-from app.services.render import FITS, FORMATS, MAX_BAND_RATIO, RenderError, png_size, render_video_async
-from app.services.video import VideoError, probe_duration, process_video
+from app.services import render as renderer
+from app.services.video import VideoError, process_video
 
-MAX_OVERLAY_BYTES = 8 * 1024 * 1024  # el PNG del texto (casi todo transparente) suele pesar < 1 MB
+MAX_LAYER_BYTES = 8 * 1024 * 1024  # cada capa es un PNG casi todo transparente: suele pesar < 1 MB
 
 router = APIRouter(prefix="/api")
 
@@ -104,55 +104,75 @@ async def create_captions(video_id: str, body: CaptionRequest) -> CaptionRespons
 
 @router.post("/videos/{video_id}/render")
 async def render_video(
+    request: Request,
     video_id: str,
-    overlay: UploadFile = File(..., description="PNG transparente del tamaño exacto del formato"),
-    fmt: str = Form(..., alias="format", description="9x16 | 4x5 | 1x1"),
-    fit: str = Form("blur", description="blur | crop"),
-    band_height: int = Form(0, description="Alto en px de la franja superior (estilo Banda TikTok); 0 = sin franja"),
-) -> FileResponse:
-    """Renderiza el video en formato vertical/cuadrado con el texto encima y lo devuelve como descarga."""
-    _require_video(video_id)
-    try:
-        if fmt not in FORMATS:
-            raise HTTPException(422, "Formato no válido. Usa 9x16, 4x5 o 1x1.")
-        if fit not in FITS:
-            raise HTTPException(422, "Encaje no válido. Usa blur (fondo difuminado) o crop (recortar).")
-        width, height = FORMATS[fmt]
-        if not 0 <= band_height <= int(height * MAX_BAND_RATIO):
-            raise HTTPException(422, f"La franja debe medir entre 0 y {int(height * MAX_BAND_RATIO)} px.")
+    spec: str = Form(..., description="JSON: {format, background, video: {x, y, scale}, layers: [{id, start, end}]}"),
+    layers: list[UploadFile] | None = File(None, description="Un PNG transparente por capa, en el mismo orden que spec.layers"),
+) -> Response:
+    """Renderiza el video con las capas del editor y lo devuelve como descarga.
 
-        data = await overlay.read(MAX_OVERLAY_BYTES + 1)
-        if len(data) > MAX_OVERLAY_BYTES:
-            raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                f"La imagen del texto pesa demasiado (máximo {MAX_OVERLAY_BYTES // (1024 * 1024)} MB).",
-            )
-        size = png_size(data)
-        if overlay.content_type not in ("image/png", "application/octet-stream") or size is None:
-            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "El texto debe enviarse como imagen PNG.")
-        if size != (width, height):
-            raise HTTPException(
-                422, f"La imagen del texto debe medir {width}x{height} px para {fmt} (llegó {size[0]}x{size[1]})."
-            )
+    Si el cliente cancela (cierra el editor o aborta la descarga), FFmpeg se mata al momento.
+    """
+    _require_video(video_id)
+    files = layers or []
+    try:
+        try:
+            cfg = RenderSpec.model_validate_json(spec)
+        except ValidationError as e:
+            first = e.errors()[0]
+            where = ".".join(str(p) for p in first.get("loc", ()))
+            raise HTTPException(422, f"Configuración de render no válida ({where}): {first.get('msg', '')}")
+
+        width, height = renderer.FORMATS[cfg.format]
+        if cfg.video and not (-10 * width <= cfg.video.x <= 11 * width and -10 * height <= cfg.video.y <= 11 * height):
+            raise HTTPException(422, "La posición del video está fuera de rango.")
+        if len(files) != len(cfg.layers):
+            raise HTTPException(422, f"Llegaron {len(files)} imágenes de capa pero la configuración describe {len(cfg.layers)}.")
+
+        payloads: list[bytes] = []
+        for i, f in enumerate(files, start=1):
+            data = await f.read(MAX_LAYER_BYTES + 1)
+            if len(data) > MAX_LAYER_BYTES:
+                raise HTTPException(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    f"La capa {i} pesa demasiado (máximo {MAX_LAYER_BYTES // (1024 * 1024)} MB).",
+                )
+            size = renderer.png_size(data)
+            if f.content_type not in ("image/png", "application/octet-stream") or size is None:
+                raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"La capa {i} debe enviarse como imagen PNG.")
+            if size != (width, height):
+                raise HTTPException(
+                    422, f"La capa {i} debe medir {width}x{height} px para {cfg.format} (llegó {size[0]}x{size[1]})."
+                )
+            payloads.append(data)
     finally:
-        await overlay.close()
+        for f in files:
+            await f.close()
 
     storage.cleanup_renders()
-    video = storage.video_path(video_id)
-    tmp_png = storage.temp_overlay_path()
-    out = storage.render_path(video_id, fmt, fit)
+    out = storage.render_path(video_id, cfg.format, cfg.background)
+    tmp_paths = [storage.temp_overlay_path() for _ in payloads]
     try:
-        tmp_png.write_bytes(data)
-        duration = await asyncio.to_thread(probe_duration, video)
-        await render_video_async(video, tmp_png, out, fmt, fit, band_height, duration)
-    except VideoError as e:
-        raise HTTPException(422, str(e))
-    except RenderError as e:
+        for path, data in zip(tmp_paths, payloads):
+            path.write_bytes(data)
+        layer_inputs = [
+            renderer.LayerInput(path=path, start=spec_layer.start, end=spec_layer.end)
+            for path, spec_layer in zip(tmp_paths, cfg.layers)
+        ]
+        transform = renderer.VideoTransform(**cfg.video.model_dump()) if cfg.video else None
+        await renderer.render(
+            storage.video_path(video_id), out, cfg.format, cfg.background, transform, layer_inputs,
+            is_cancelled=request.is_disconnected,
+        )
+    except renderer.RenderCancelled:
+        return Response(status_code=499)  # el cliente ya no escucha; FFmpeg ya se mató
+    except renderer.RenderError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
     finally:
-        tmp_png.unlink(missing_ok=True)
+        for path in tmp_paths:
+            path.unlink(missing_ok=True)
 
-    filename = f"memecaptioner_{fmt}_{datetime.now():%Y-%m-%d_%H%M}.mp4"
+    filename = f"memecaptioner_{cfg.format}_{datetime.now():%Y-%m-%d_%H%M}.mp4"
     return FileResponse(out, media_type="video/mp4", filename=filename)
 
 

@@ -10,6 +10,16 @@ from app.config import settings
 
 storage.ensure_dirs()
 
+
+class FrontendFiles(StaticFiles):
+    """Sirve el frontend con "Cache-Control: no-cache": el navegador revalida (ETag → 304 si no cambió)
+    en vez de usar una copia vieja de app.js / editor.js / styles.css tras actualizar el código."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
 app = FastAPI(title="MemeCaptioner", version="0.1.0")
 app.include_router(router)
 
@@ -18,4 +28,4 @@ app.mount("/media/videos", StaticFiles(directory=settings.videos_dir), name="vid
 app.mount("/media/frames", StaticFiles(directory=settings.frames_dir), name="frames")
 
 # Frontend estático (index.html, app.js). Va al final para no tapar /api.
-app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")
+app.mount("/", FrontendFiles(directory=settings.frontend_dir, html=True), name="frontend")
